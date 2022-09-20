@@ -11,9 +11,10 @@ import { resolveConfig } from '.'
 const cli = cac('vite')
 
 // global options
+
 interface GlobalCLIOptions {
   '--'?: string[]
-  c?: boolean | string
+  c?: boolean | string //这是底下config的缩写
   config?: string
   base?: string
   l?: LogLevel

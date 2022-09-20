@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 import { performance } from 'node:perf_hooks'
+console.log('@cli-start')
 
 if (!import.meta.url.includes('node_modules')) {
   try {
@@ -9,7 +10,6 @@ if (!import.meta.url.includes('node_modules')) {
 }
 
 global.__vite_start_time = performance.now()
-
 // check debug mode first before requiring the CLI.
 const debugIndex = process.argv.findIndex((arg) => /^(?:-d|--debug)$/.test(arg))
 const filterIndex = process.argv.findIndex((arg) =>
