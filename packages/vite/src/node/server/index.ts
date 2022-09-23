@@ -295,6 +295,7 @@ export async function createServer(
 ): Promise<ViteDevServer> {
   const config = await resolveConfig(inlineConfig, 'serve', 'development')
   const { root, server: serverConfig } = config
+  //解析https
   const httpsOptions = await resolveHttpsConfig(
     config.server.https,
     config.cacheDir
@@ -306,7 +307,7 @@ export async function createServer(
     ...serverConfig.watch
   })
 
-  const middlewares = connect() as Connect.Server
+  const middlewares = connect() as Connect.Server //vite，server底层，一个connect中间层,可以通过http.createServer(connect())来创建
   const httpServer = middlewareMode
     ? null
     : await resolveHttpServer(serverConfig, middlewares, httpsOptions)
@@ -315,7 +316,7 @@ export async function createServer(
   if (httpServer) {
     setClientErrorHandler(httpServer, config.logger)
   }
-
+  //chokidar用于文件检索
   const watcher = chokidar.watch(
     path.resolve(root),
     resolvedWatchOptions

@@ -1,3 +1,7 @@
+# vite 后台服务构建流程
+
+大致源码如下：↓
+
 ```javascript
 async function createServer(inlineConfig = {}) {
   //解析配置，吐槽一下vite的配置选项真是多到超乎想象。。
@@ -277,6 +281,8 @@ async function createServer(inlineConfig = {}) {
 }
 ```
 
+## 解析配置
+
 首先是第一段解析配置
 
 ```javascript
@@ -284,9 +290,11 @@ async function createServer(inlineConfig = {}) {
 const config = await resolveConfig(inlineConfig, 'serve', 'development')
 ```
 
-1. 加载用户配置 vite.config.js
-2. 初始化日志器
-3. 加载插件
+### 加载用户配置 vite.config.js
+
+### 初始化日志器
+
+### 加载插件
 
 - workerPlugin
 - userPlugin
@@ -320,8 +328,11 @@ const [prePlugins, normalPlugins, postPlugins] = sortUserPlugins(rawUserPlugins)
 config = await runConfigHook(config, userPlugins, configEnv)
 ```
 
-4. 解析根目录 [resolveRoot](https://cn.vitejs.dev/guide/#index-html-and-project-root)
-5. 解析别名 resolvedAlias
+### 解析根目录 [resolveRoot](https://cn.vitejs.dev/guide/#index-html-and-project-root)
+
+略
+
+### 解析别名 resolvedAlias
 
 ```javascript
 // resolve alias with internal client alias
@@ -339,18 +350,32 @@ const resolveOptions = {
 }
 ```
 
-6. 加载[env](https://cn.vitejs.dev/guide/env-and-mode.html#env-files)文件
+### 加载[env](https://cn.vitejs.dev/guide/env-and-mode.html#env-files)文件
 
 ```javascript
+//获取envDir路径
 const envDir = config.envDir
   ? normalizePath(path.resolve(resolvedRoot, config.envDir))
   : resolvedRoot
+//根据envDir加载env文件
 const userEnv =
   inlineConfig.envFile !== false &&
   loadEnv(mode, envDir, resolveEnvPrefix(config))
 ```
 
-7. 解析公共路径 url[base](https://cn.vitejs.dev/config/shared-options.html#base)
+最后 env 会随着 config.env 返回,基本上这里就是一些环境配置，在应用中我们根据 import.meta.env 来获取
+
+```javascript
+config.env = {
+  ...userEnv,
+  BASE_URL,
+  MODE: mode,
+  DEV: !isProduction,
+  PROD: isProduction
+}
+```
+
+### 解析公共路径 url[base](https://cn.vitejs.dev/config/shared-options.html#base)
 
 ```javascript
 const resolvedBase = relativeBaseShortcut
@@ -360,13 +385,13 @@ const resolvedBase = relativeBaseShortcut
   : resolveBaseUrl(config.base, isBuild, logger) ?? '/'
 ```
 
-8. 解析[构建选项](https://cn.vitejs.dev/config/build-options.html)
+### 解析[构建选项](https://cn.vitejs.dev/config/build-options.html)
 
 ```javascript
 const resolvedBuildOptions = resolveBuildOptions(config.build)
 ```
 
-9. 解析[缓存文件夹](https://cn.vitejs.dev/config/shared-options.html#cachedir)
+### 解析[缓存文件夹](https://cn.vitejs.dev/config/shared-options.html#cachedir)
 
 ```javascript
 // resolve cache directory
@@ -381,6 +406,262 @@ const assetsFilter = config.assetsInclude
   : () => false
 ```
 
-10. 解析内置钩子
+### 解析内置钩子
 
 其余还有很多解析，但都不太有紧要，所以略。
+
+## 创建服务
+
+### http
+
+这里似乎是有创建的动作，因此 http 的执行细节还没有体现
+
+```typescript
+const { root, server: serverConfig } = config
+//解析https
+const httpsOptions = await resolveHttpsConfig(
+  config.server.https,
+  config.cacheDir
+)
+const { middlewareMode } = serverConfig
+
+const resolvedWatchOptions = resolveChokidarOptions({
+  disableGlobbing: true,
+  ...serverConfig.watch
+})
+
+const middlewares = connect() as Connect.Server //vite，server底层，一个connect中间层,可以通过http.createServer(connect())来创建
+//相当于http.createServer(middlewares)
+//暂时不知道httpServer的共用，我猜是给客户端import的时候按需上传文件
+const httpServer = middlewareMode
+  ? null
+  : await resolveHttpServer(serverConfig, middlewares, httpsOptions)
+```
+
+### ws
+
+创建 ws 服务
+
+```javascript
+const ws = createWebSocketServer(httpServer, config, httpsOptions)
+```
+
+接下来我们看看 websocket 的创建流程，因为这可能和 hmr 有关
+
+```javascript
+function createWebSocketServer(server, config, httpsOptions) {
+  let wss
+  let httpsServer = undefined
+  const hmr = isObject(config.server.hmr) && config.server.hmr
+  const hmrServer = hmr && hmr.server
+  const hmrPort = hmr && hmr.port
+  // TODO: the main server port may not have been chosen yet as it may use the next available
+  const portsAreCompatible = !hmrPort || hmrPort === config.server.port
+  const wsServer = hmrServer || (portsAreCompatible && server)
+  const customListeners = new Map()
+  const clientsMap = new WeakMap()
+
+  // ⚠️ 只处理带HMR_HEADER的协议升级请求
+  if (wsServer) {
+    wss = new WebSocketServer({ noServer: true })
+    //接管ws协议升级事件，只接受HMR的升级请求
+    wsServer.on('upgrade', (req, socket, head) => {
+      if (req.headers['sec-websocket-protocol'] === HMR_HEADER) {
+        wss.handleUpgrade(req, socket, head, (ws) => {
+          wss.emit('connection', ws, req)
+        })
+      }
+    })
+  }
+  //...
+}
+```
+
+#### 事件机制
+
+注意看 socket 的 Event.message,其中 customListeners 就是记录事件的 Map
+
+```javascript
+wss.on('connection', (socket) => {
+  console.log('@connection')
+  socket.on('message', (raw) => {
+    console.log('@message')
+    if (!customListeners.size) return
+    let parsed
+    try {
+      parsed = JSON.parse(String(raw))
+    } catch {}
+    console.log(parsed)
+    if (!parsed || parsed.type !== 'custom' || !parsed.event) return
+    const listeners = customListeners.get(parsed.event)
+    if (!listeners?.size) return
+    const client = getSocketClient(socket)
+    listeners.forEach((listener) => listener(parsed.data, client))
+  })
+  socket.send(JSON.stringify({ type: 'connected' }))
+  if (bufferedError) {
+    socket.send(JSON.stringify(bufferedError))
+    bufferedError = null
+  }
+})
+```
+
+##### 触发
+
+```javascript
+const listeners = customListeners.get(parsed.event)
+listeners.forEach((listener) => listener(parsed.data, client))
+```
+
+##### 注册&注销
+
+最后 createWebSocketServer 返回的对象中有 on 和 off 两个函数
+
+```javascript
+return {
+  on: (event, fn) => {
+    if (wsServerEvents.includes(event)) wss.on(event, fn)
+    else {
+      if (!customListeners.has(event)) {
+        customListeners.set(event, new Set())
+      }
+      customListeners.get(event).add(fn)
+    }
+  },
+  off: (event, fn) => {
+    if (wsServerEvents.includes(event)) {
+      wss.off(event, fn)
+    } else {
+      customListeners.get(event)?.delete(fn)
+    }
+  }
+  //...
+}
+```
+
+消息发送:服务器广播的形式
+
+```javascript
+return {
+  send(...args) {
+    let payload
+    if (typeof args[0] === 'string') {
+      payload = {
+        type: 'custom',
+        event: args[0],
+        data: args[1]
+      }
+    } else {
+      payload = args[0]
+    }
+    if (payload.type === 'error' && !wss.clients.size) {
+      bufferedError = payload
+      return
+    }
+    const stringified = JSON.stringify(payload)
+    //向所有已经建立连接的客户端发送消息（服务器广播）
+    wss.clients.forEach((client) => {
+      // readyState 1 means the connection is open
+      if (client.readyState === 1) {
+        client.send(stringified)
+      }
+    })
+  }
+}
+```
+
+#### 注册错误事件
+
+```javascript
+//in createServer
+if (httpServer) {
+  setClientErrorHandler(httpServer, config.logger)
+}
+```
+
+具体逻辑也很简单,用到了我们上面提到的事件注册
+
+```typescript
+export function setClientErrorHandler(
+  server: HttpServer,
+  logger: Logger
+): void {
+  server.on('clientError', (err, socket) => {
+    let msg = '400 Bad Request'
+    if ((err as any).code === 'HPE_HEADER_OVERFLOW') {
+      msg = '431 Request Header Fields Too Large'
+      logger.warn(
+        colors.yellow(
+          'Server responded with status code 431. ' +
+            'See https://vitejs.dev/guide/troubleshooting.html#_431-request-header-fields-too-large.'
+        )
+      )
+    }
+    if ((err as any).code === 'ECONNRESET' || !socket.writable) {
+      return
+    }
+    socket.end(`HTTP/1.1 ${msg}\r\n\r\n`)
+  })
+}
+```
+
+## 文件监控
+
+chokidar 用于文件监控，关于 chokidar 可以看[这里](https://github.com/paulmillr/chokidar)
+
+```javascript
+  const watcher = chokidar.watch(
+    path.resolve(root),
+    resolvedWatchOptions
+  ) as FSWatcher
+```
+
+### 监控事件
+
+```javascript
+watcher.on('change', async (file) => {
+  console.log('@change')
+  //...
+})
+watcher.on('add', (file) => {
+  console.log('@add')
+  //...
+})
+watcher.on('unlink', (file) => {
+  console.log('@unlink')
+  //...
+})
+```
+
+我们对如上三个事件打上 console.log
+经验证，在你改变项目文件时，添加，删除时都会如实触发，读者也可以试试。
+
+#### change 【hmr 核心】
+
+```javascript
+watcher.on('change', async (file) => {
+  //获取文件路径
+  file = normalizePath(file)
+  //不处理package.json的文件改动
+  if (file.endsWith('/package.json')) {
+    return invalidatePackageData(packageCache, file)
+  }
+  // invalidate module graph cache on file change
+  // 在文件更改时，使依赖图缓存失效
+  moduleGraph.onFileChange(file)
+  if (serverConfig.hmr !== false) {
+    try {
+      //尝试热更新
+      await handleHMRUpdate(file, server)
+    } catch (err) {
+      ws.send({
+        type: 'error',
+        err: prepareError(err)
+      })
+    }
+  }
+})
+```
+
+上面几个点，比较细致的 moduleGraph 先不谈
+我们看看 handleHMRUpdate
