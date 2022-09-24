@@ -321,7 +321,7 @@ export async function createServer(
     path.resolve(root),
     resolvedWatchOptions
   ) as FSWatcher
-
+  //构建依赖图
   const moduleGraph: ModuleGraph = new ModuleGraph((url, ssr) =>
     container.resolveId(url, undefined, { ssr })
   )

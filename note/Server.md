@@ -414,7 +414,7 @@ const assetsFilter = config.assetsInclude
 
 ### http
 
-这里似乎是有创建的动作，因此 http 的执行细节还没有体现
+这里似乎只有创建的动作，因此 http 的执行细节还没有体现
 
 ```typescript
 const { root, server: serverConfig } = config
@@ -429,7 +429,7 @@ const resolvedWatchOptions = resolveChokidarOptions({
   disableGlobbing: true,
   ...serverConfig.watch
 })
-
+//https://github.com/senchalabs/connect
 const middlewares = connect() as Connect.Server //vite，server底层，一个connect中间层,可以通过http.createServer(connect())来创建
 //相当于http.createServer(middlewares)
 //暂时不知道httpServer的共用，我猜是给客户端import的时候按需上传文件
@@ -625,11 +625,12 @@ watcher.on('change', async (file) => {
 })
 watcher.on('add', (file) => {
   console.log('@add')
-  //...
+  handleFileAddUnlink(normalizePath(file), server)
 })
 watcher.on('unlink', (file) => {
   console.log('@unlink')
   //...
+  handleFileAddUnlink(normalizePath(file), server)
 })
 ```
 

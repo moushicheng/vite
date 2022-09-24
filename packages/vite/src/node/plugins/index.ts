@@ -105,6 +105,7 @@ export function createPluginHookUtils(
 ): PluginHookUtils {
   // sort plugins per hook
   const sortedPluginsCache = new Map<keyof Plugin, Plugin[]>()
+  //设置[hookname]:[plugin] map対
   function getSortedPlugins(hookName: keyof Plugin): Plugin[] {
     if (sortedPluginsCache.has(hookName))
       return sortedPluginsCache.get(hookName)!
@@ -124,7 +125,8 @@ export function createPluginHookUtils(
       })
       .filter(Boolean)
   }
-
+  //getSortedPlugins :通过hooks（resolveid，load）这些，获取拥有这个hook的plugin
+  //getSortedPluginHooks: 先执行getSortedPlugins，再获取hook上正确的执行函数（本体或者handler）
   return {
     getSortedPlugins,
     getSortedPluginHooks
