@@ -2,7 +2,7 @@
 
 大致源码如下：↓
 
-```javascript
+```typescript
 async function createServer(inlineConfig = {}) {
   //解析配置，吐槽一下vite的配置选项真是多到超乎想象。。
   const config = await resolveConfig(inlineConfig, 'serve', 'development')
@@ -285,7 +285,7 @@ async function createServer(inlineConfig = {}) {
 
 首先是第一段解析配置
 
-```javascript
+```typescript
 //resolveConifg 地址：E:\work_space\Technology_related\Front-end\MVVM\vue\vite\vite-main\packages\vite\dist\node\chunks\dep-6b2ac8fa.js
 const config = await resolveConfig(inlineConfig, 'serve', 'development')
 ```
@@ -304,7 +304,7 @@ const config = await resolveConfig(inlineConfig, 'serve', 'development')
 2. plugin.apply 存在， -是函数，则返回 apply()的结果 -否则比对，apply==command（command 默认 serve），
    所以可以推测 apply 是用来处理过滤规则的函数或字符串
 
-```javascript
+```typescript
 const rawUserPlugins = (await asyncFlatten(config.plugins || [])).filter(
   (p) => {
     if (!p) {
@@ -322,7 +322,7 @@ const rawUserPlugins = (await asyncFlatten(config.plugins || [])).filter(
 
 然后会根据执行时机归类插件,并调用 config 钩子
 
-```javascript
+```typescript
 const [prePlugins, normalPlugins, postPlugins] = sortUserPlugins(rawUserPlugins)
 // 执行config钩子，按orader= pre | normal | post 的顺序执行钩子
 config = await runConfigHook(config, userPlugins, configEnv)
@@ -334,7 +334,7 @@ config = await runConfigHook(config, userPlugins, configEnv)
 
 ### 解析别名 resolvedAlias
 
-```javascript
+```typescript
 // resolve alias with internal client alias
 const resolvedAlias = normalizeAlias(
   mergeAlias(
@@ -352,7 +352,7 @@ const resolveOptions = {
 
 ### 加载[env](https://cn.vitejs.dev/guide/env-and-mode.html#env-files)文件
 
-```javascript
+```typescript
 //获取envDir路径
 const envDir = config.envDir
   ? normalizePath(path.resolve(resolvedRoot, config.envDir))
@@ -365,7 +365,7 @@ const userEnv =
 
 最后 env 会随着 config.env 返回,基本上这里就是一些环境配置，在应用中我们根据 import.meta.env 来获取
 
-```javascript
+```typescript
 config.env = {
   ...userEnv,
   BASE_URL,
@@ -377,7 +377,7 @@ config.env = {
 
 ### 解析公共路径 url[base](https://cn.vitejs.dev/config/shared-options.html#base)
 
-```javascript
+```typescript
 const resolvedBase = relativeBaseShortcut
   ? !isBuild || config.build?.ssr
     ? '/'
@@ -387,13 +387,13 @@ const resolvedBase = relativeBaseShortcut
 
 ### 解析[构建选项](https://cn.vitejs.dev/config/build-options.html)
 
-```javascript
+```typescript
 const resolvedBuildOptions = resolveBuildOptions(config.build)
 ```
 
 ### 解析[缓存文件夹](https://cn.vitejs.dev/config/shared-options.html#cachedir)
 
-```javascript
+```typescript
 // resolve cache directory
 const pkgPath = lookupFile(resolvedRoot, [`package.json`], { pathOnly: true })
 const cacheDir = config.cacheDir
@@ -442,13 +442,13 @@ const httpServer = middlewareMode
 
 创建 ws 服务
 
-```javascript
+```typescript
 const ws = createWebSocketServer(httpServer, config, httpsOptions)
 ```
 
 接下来我们看看 websocket 的创建流程，因为这可能和 hmr 有关
 
-```javascript
+```typescript
 function createWebSocketServer(server, config, httpsOptions) {
   let wss
   let httpsServer = undefined
@@ -481,7 +481,7 @@ function createWebSocketServer(server, config, httpsOptions) {
 
 注意看 socket 的 Event.message,其中 customListeners 就是记录事件的 Map
 
-```javascript
+```typescript
 wss.on('connection', (socket) => {
   console.log('@connection')
   socket.on('message', (raw) => {
@@ -508,7 +508,7 @@ wss.on('connection', (socket) => {
 
 ##### 触发
 
-```javascript
+```typescript
 const listeners = customListeners.get(parsed.event)
 listeners.forEach((listener) => listener(parsed.data, client))
 ```
@@ -517,7 +517,7 @@ listeners.forEach((listener) => listener(parsed.data, client))
 
 最后 createWebSocketServer 返回的对象中有 on 和 off 两个函数
 
-```javascript
+```typescript
 return {
   on: (event, fn) => {
     if (wsServerEvents.includes(event)) wss.on(event, fn)
@@ -541,7 +541,7 @@ return {
 
 消息发送:服务器广播的形式
 
-```javascript
+```typescript
 return {
   send(...args) {
     let payload
@@ -572,7 +572,7 @@ return {
 
 #### 注册错误事件
 
-```javascript
+```typescript
 //in createServer
 if (httpServer) {
   setClientErrorHandler(httpServer, config.logger)
@@ -609,27 +609,23 @@ export function setClientErrorHandler(
 
 chokidar 用于文件监控，关于 chokidar 可以看[这里](https://github.com/paulmillr/chokidar)
 
-```javascript
-  const watcher = chokidar.watch(
-    path.resolve(root),
-    resolvedWatchOptions
-  ) as FSWatcher
+```typescript
+const watcher = chokidar.watch(
+  path.resolve(root),
+  resolvedWatchOptions
+) as FSWatcher
 ```
 
 ### 监控事件
 
-```javascript
+```typescript
 watcher.on('change', async (file) => {
-  console.log('@change')
   //...
 })
 watcher.on('add', (file) => {
-  console.log('@add')
   handleFileAddUnlink(normalizePath(file), server)
 })
 watcher.on('unlink', (file) => {
-  console.log('@unlink')
-  //...
   handleFileAddUnlink(normalizePath(file), server)
 })
 ```
@@ -639,7 +635,7 @@ watcher.on('unlink', (file) => {
 
 #### change 【hmr 核心】
 
-```javascript
+```typescript
 watcher.on('change', async (file) => {
   //获取文件路径
   file = normalizePath(file)
@@ -664,5 +660,122 @@ watcher.on('change', async (file) => {
 })
 ```
 
-上面几个点，比较细致的 moduleGraph 先不谈
 我们看看 handleHMRUpdate
+
+```typescript
+export async function handleHMRUpdate(
+  file: string,
+  server: ViteDevServer
+): Promise<void> {
+  const { ws, config, moduleGraph } = server
+  const shortFile = getShortName(file, config.root)
+  const fileName = path.basename(file)
+
+  const isConfig = file === config.configFile
+  const isConfigDependency = config.configFileDependencies.some(
+    (name) => file === name
+  )
+  const isEnv =
+    config.inlineConfig.envFile !== false &&
+    (fileName === '.env' || fileName.startsWith('.env.'))
+
+  if (isConfig || isConfigDependency || isEnv) {
+    // auto restart server
+    debugHmr(`[config change] ${colors.dim(shortFile)}`)
+    config.logger.info(
+      colors.green(
+        `${path.relative(process.cwd(), file)} changed, restarting server...`
+      ),
+      { clear: true, timestamp: true }
+    )
+    try {
+      await server.restart()
+    } catch (e) {
+      config.logger.error(colors.red(e))
+    }
+    return
+  }
+
+  debugHmr(`[file change] ${colors.dim(shortFile)}`)
+
+  // (dev only) the client itself cannot be hot updated.
+  if (file.startsWith(normalizedClientDir)) {
+    ws.send({
+      type: 'full-reload',
+      path: '*'
+    })
+    return
+  }
+
+  const mods = moduleGraph.getModulesByFile(file)
+
+  // check if any plugin wants to perform custom HMR handling
+  const timestamp = Date.now()
+  const hmrContext: HmrContext = {
+    file,
+    timestamp,
+    modules: mods ? [...mods] : [],
+    read: () => readModifiedFile(file),
+    server
+  }
+
+  for (const hook of config.getSortedPluginHooks('handleHotUpdate')) {
+    const filteredModules = await hook(hmrContext)
+    if (filteredModules) {
+      hmrContext.modules = filteredModules
+    }
+  }
+
+  if (!hmrContext.modules.length) {
+    // html file cannot be hot updated
+    if (file.endsWith('.html')) {
+      config.logger.info(colors.green(`page reload `) + colors.dim(shortFile), {
+        clear: true,
+        timestamp: true
+      })
+      ws.send({
+        type: 'full-reload',
+        path: config.server.middlewareMode
+          ? '*'
+          : '/' + normalizePath(path.relative(config.root, file))
+      })
+    } else {
+      // loaded but not in the module graph, probably not js
+      debugHmr(`[no modules matched] ${colors.dim(shortFile)}`)
+    }
+    return
+  }
+
+  updateModules(shortFile, hmrContext.modules, timestamp, server)
+}
+```
+
+在 env/config 文件变动时重启整个服务器
+
+```typescript
+const isConfig = file === config.configFile
+const isConfigDependency = config.configFileDependencies.some(
+  (name) => file === name
+)
+const isEnv =
+  config.inlineConfig.envFile !== false &&
+  (fileName === '.env' || fileName.startsWith('.env.'))
+
+if (isConfig || isConfigDependency || isEnv) {
+  // auto restart server
+  debugHmr(`[config change] ${colors.dim(shortFile)}`)
+  config.logger.info(
+    colors.green(
+      `${path.relative(process.cwd(), file)} changed, restarting server...`
+    ),
+    { clear: true, timestamp: true }
+  )
+  try {
+    //close再createServer
+    await server.restart()
+  } catch (e) {
+    config.logger.error(colors.red(e))
+  }
+  return
+}
+```

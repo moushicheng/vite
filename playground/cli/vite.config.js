@@ -2,10 +2,7 @@ const { defineConfig } = require('vite')
 
 module.exports = defineConfig({
   server: {
-    host: 'localhost',
-    headers: {
-      'Cache-Control': 'no-store'
-    }
+    host: 'localhost'
   },
   build: {
     //speed up build

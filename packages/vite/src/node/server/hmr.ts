@@ -54,6 +54,7 @@ export async function handleHMRUpdate(
   const isEnv =
     config.inlineConfig.envFile !== false &&
     (fileName === '.env' || fileName.startsWith('.env.'))
+
   if (isConfig || isConfigDependency || isEnv) {
     // auto restart server
     debugHmr(`[config change] ${colors.dim(shortFile)}`)
@@ -74,6 +75,7 @@ export async function handleHMRUpdate(
   debugHmr(`[file change] ${colors.dim(shortFile)}`)
 
   // (dev only) the client itself cannot be hot updated.
+  // 对client文件夹下文件异动的特殊处理
   if (file.startsWith(normalizedClientDir)) {
     ws.send({
       type: 'full-reload',
@@ -93,7 +95,7 @@ export async function handleHMRUpdate(
     read: () => readModifiedFile(file),
     server
   }
-
+  //执行 handleHotUpdate钩子
   for (const hook of config.getSortedPluginHooks('handleHotUpdate')) {
     const filteredModules = await hook(hmrContext)
     if (filteredModules) {

@@ -506,7 +506,7 @@ export function createHotContext(ownerPath: string): ViteHotContext {
     })
     hotModulesMap.set(ownerPath, mod)
   }
-
+  //@mark hot
   const hot: ViteHotContext = {
     get data() {
       return dataMap.get(ownerPath)

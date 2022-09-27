@@ -1,3 +1,3 @@
-const newFile = require('./newFile')
-console.log('vite cli works')
-console.log(newFile)
+import a from './src/a'
+console.log('vite cli works?1')
+console.log(a)
