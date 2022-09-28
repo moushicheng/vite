@@ -1,5 +1,5 @@
 <template>
-  <h2 class="hmr">HMR</h2>
+  <h2 class="hmr">HMR?</h2>
   <p>Click the button then edit this message. The count should be preserved.</p>
   <button class="hmr-inc" @click="count++">count is {{ count }}</button>
 </template>

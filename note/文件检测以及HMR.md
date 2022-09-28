@@ -170,7 +170,7 @@ export async function handleHMRUpdate(
   //....
 ```
 
-如果修改项是 client 内的文件，则不需要热更新,而是全量更新
+如果修改的是 vite 自带的 client 脚本，就刷新页面；
 
 ```javascript
 //....
@@ -269,10 +269,6 @@ function updateModules(
   }
 
   if (needFullReload) {
-    config.logger.info(colors.green(`page reload `) + colors.dim(file), {
-      clear: true,
-      timestamp: true
-    })
     ws.send({
       type: 'full-reload'
     })
@@ -280,16 +276,8 @@ function updateModules(
   }
 
   if (updates.length === 0) {
-    debugHmr(colors.yellow(`no update happened `) + colors.dim(file))
     return
   }
-
-  config.logger.info(
-    updates
-      .map(({ path }) => colors.green(`hmr update `) + colors.dim(path))
-      .join('\n'),
-    { clear: true, timestamp: true }
-  )
   ws.send({
     type: 'update',
     updates
@@ -299,6 +287,10 @@ function updateModules(
 
 在 Vite 中，HMR 是在原生 ESM 上执行的。当编辑一个文件时，Vite 只需要精确地使已编辑的模块与其最近的 HMR 边界之间的链失活（大多数时候只是模块本身），使得无论应用大小如何，HMR 始终能保持快速更新。
 
+invalidate 的语义是失活
+怎么理解？ 即更新当前模块的热更新时间，并将其转换结果都清除。
+PS : 为什么要这么做？ 现在还不是很理解..
+
 ```typescript
 for (const mod of modules) {
   //失活操作
@@ -306,28 +298,226 @@ for (const mod of modules) {
   if (needFullReload) {
     continue
   }
+}
+```
 
-  const boundaries = new Set<{
+即进行设置如下，
+
+```javascript
+mod.lastHMRTimestamp = timestamp
+mod.transformResult = null
+mod.ssrModule = null
+mod.ssrError = null
+mod.ssrTransformResult = nul
+mod.importers.forEach((importer) => {
+  //如果importer没有[接受]mod，就让importer失活
+  if (!importer.acceptedHmrDeps.has(mod)) {
+    invalidate(importer, timestamp, seen)
+  }
+})
+```
+
+失活后就会执行 propagateUpdate
+
+### propagateUpdate
+
+它通常用于构建 边缘链（即分析出最终需要热更新处理的模块
+他有如下行为
+
+1. 对于自接受模块（isSelfAccepting==true）则直接加入边缘链
+2. 寻找 deadEnd（即循环引用，寻找的过程后续会讲）
+   - 如果发现，则返回 true，后续会因为 hasDeadEnd==true，而直接导致应用全量更新
+   - 如果没有，则返回 false，后续会因为 hasDeadEnd==false，应用按需更新。
+
+解释：
+
+1. 什么是 isSelfAccept？
+   importAnalysis 插件会在 transform 分析应用 import.meta.hot.accept(() => {})或者 import.meta.hot.accept()的模块
+   这俩是[HMR API](https://cn.vitejs.dev/guide/api-hmr.html#hot-acceptcb)
+   如此，模块会被打上 isSelfAccepting=true 的标志
+
+```javascript
+function propagateUpdate(
+  node: ModuleNode,
+  boundaries: Set<{
     boundary: ModuleNode
     acceptedVia: ModuleNode
-  }>()
-  const hasDeadEnd = propagateUpdate(mod, boundaries)
-  if (hasDeadEnd) {
-    needFullReload = true
+  }>,
+  currentChain: ModuleNode[] = [node]
+): boolean /* hasDeadEnd */ {
+  // #7561
+  // if the imports of `node` have not been analyzed, then `node` has not
+  // been loaded in the browser and we should stop propagation.
+  if (node.id && node.isSelfAccepting === undefined) {
+    return false
+  }
+
+  if (node.isSelfAccepting) {
+    boundaries.add({
+      boundary: node,
+      acceptedVia: node
+    })
+
+    // additionally check for CSS importers, since a PostCSS plugin like
+    // Tailwind JIT may register any file as a dependency to a CSS file.
+    for (const importer of node.importers) {
+      if (isCSSRequest(importer.url) && !currentChain.includes(importer)) {
+        propagateUpdate(importer, boundaries, currentChain.concat(importer))
+      }
+    }
+
+    return false
+  }
+  // A -> B(B.importers=[A,...])
+  // A partially accepted module with no importers is considered self accepting,
+  // because the deal is "there are parts of myself I can't self accept if they
+  // are used outside of me".
+  // Also, the imported module (this one) must be updated before the importers,(B必须在A之前更新)
+  // so that they do get the fresh imported module when/if they are reloaded. （以便A更新时，B是最新的）
+  if (node.acceptedHmrExports) {
+    boundaries.add({
+      boundary: node,
+      acceptedVia: node
+    })
+  } else {
+    if (!node.importers.size) {
+      return true
+    }
+
+    // #3716, #3913
+    // For a non-CSS file, if all of its importers are CSS files (registered via
+    // PostCSS plugins) it should be considered a dead end and force full reload.
+    if (
+      !isCSSRequest(node.url) &&
+      [...node.importers].every((i) => isCSSRequest(i.url))
+    ) {
+      return true
+    }
+  }
+
+  for (const importer of node.importers) {
+    const subChain = currentChain.concat(importer)
+    if (importer.acceptedHmrDeps.has(node)) {
+      boundaries.add({
+        boundary: importer,
+        acceptedVia: node
+      })
+      continue
+    }
+
+    if (node.id && node.acceptedHmrExports && importer.importedBindings) {
+      const importedBindingsFromNode = importer.importedBindings.get(node.id)
+      if (
+        importedBindingsFromNode &&
+        areAllImportsAccepted(importedBindingsFromNode, node.acceptedHmrExports)
+      ) {
+        continue
+      }
+    }
+
+    if (currentChain.includes(importer)) {
+      // circular deps is considered dead end
+      return true
+    }
+
+    if (propagateUpdate(importer, boundaries, subChain)) {
+      return true
+    }
+  }
+  return false
+}
+```
+
+加入边缘链满足以下条件即可：
+一：对于自更新模块,直接加入边缘链，然后返回 false
+
+```typescript
+if (node.isSelfAccepting) {
+  boundaries.add({
+    boundary: node,
+    acceptedVia: node
+  })
+
+  //先跳过分析
+  // additionally check for CSS importers, since a PostCSS plugin like
+  // Tailwind JIT may register any file as a dependency to a CSS file.
+  for (const importer of node.importers) {
+    if (isCSSRequest(importer.url) && !currentChain.includes(importer)) {
+      propagateUpdate(importer, boundaries, currentChain.concat(importer))
+    }
+  }
+
+  return false
+}
+```
+
+条件二：如果当前模块被其他模块接收了，也需要加入边缘链
+举例:A 导入了 B
+A 中书写代码
+
+```typescript
+import.meta.hot.accept('./b.js', (modB) => {
+  console.log(modB)
+})
+```
+
+那么 B.acceptedHmrExports 就会为 true
+
+```typescript
+// A -> B(B.importers=[A,...])
+// A partially accepted module with no importers is considered self accepting,
+// because the deal is "there are parts of myself I can't self accept if they
+// are used outside of me".
+// Also, the imported module (this one) must be updated before the importers,(B必须在A之前更新)
+// so that they do get the fresh imported module when/if they are reloaded. （以便A更新时，B是最新的）
+if (node.acceptedHmrExports) {
+  boundaries.add({
+    boundary: node,
+    acceptedVia: node
+  })
+} else {
+  //...边界情况，暂时不考虑
+}
+```
+
+然后，就开始解析 importer
+
+```javascript
+for (const importer of node.importers) {
+  const subChain = currentChain.concat(importer)
+  //importer.acceptedHmrDeps 获取到的是模块中 import.meta.hot.accept 的 dep(s) 参数
+  if (importer.acceptedHmrDeps.has(node)) {
+    //如果导入者 接受了当年模块则将其加入边界
+    boundaries.add({
+      boundary: importer,
+      acceptedVia: node
+    })
     continue
   }
 
-  updates.push(
-    ...[...boundaries].map(({ boundary, acceptedVia }) => ({
-      type: `${boundary.type}-update` as const,
-      timestamp,
-      path: boundary.url,
-      explicitImportRequired:
-        boundary.type === 'js'
-          ? isExplicitImportRequired(acceptedVia.url)
-          : undefined,
-      acceptedPath: acceptedVia.url
-    }))
-  )
+  if (node.id && node.acceptedHmrExports && importer.importedBindings) {
+    const importedBindingsFromNode = importer.importedBindings.get(node.id)
+    if (
+      importedBindingsFromNode &&
+      areAllImportsAccepted(importedBindingsFromNode, node.acceptedHmrExports)
+    ) {
+      continue
+    }
+  }
+
+  // 有循环引用，直接全量更新
+  if (currentChain.includes(importer)) {
+    // circular deps is considered dead end
+    return true
+  }
+
+  //递归
+  if (propagateUpdate(importer, boundaries, subChain)) {
+    return true
+  }
 }
 ```
+
+最后借用[小余](https://juejin.cn/user/3210229686216222)的一张流程图 ↓
+
+![img](https://p3-juejin.byteimg.com/tos-cn-i-k3u1fbpfcp/a67dbbef49b4471a855b490100ab606a~tplv-k3u1fbpfcp-zoom-in-crop-mark:3024:0:0:0.awebp)

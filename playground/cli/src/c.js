@@ -1,2 +1,2 @@
 import d from './d'
-export default 'c' + d
+export default 'c?' + d

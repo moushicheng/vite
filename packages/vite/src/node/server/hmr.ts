@@ -75,7 +75,6 @@ export async function handleHMRUpdate(
   debugHmr(`[file change] ${colors.dim(shortFile)}`)
 
   // (dev only) the client itself cannot be hot updated.
-  // 对client文件夹下文件异动的特殊处理
   if (file.startsWith(normalizedClientDir)) {
     ws.send({
       type: 'full-reload',
@@ -261,11 +260,12 @@ function propagateUpdate(
     return false
   }
 
+  // A -> B(B.importers=[A,...])
   // A partially accepted module with no importers is considered self accepting,
   // because the deal is "there are parts of myself I can't self accept if they
   // are used outside of me".
-  // Also, the imported module (this one) must be updated before the importers,
-  // so that they do get the fresh imported module when/if they are reloaded.
+  // Also, the imported module (this one) must be updated before the importers,(B必须在A之前更新)
+  // so that they do get the fresh imported module when/if they are reloaded. （以便A更新时，B是最新的）
   if (node.acceptedHmrExports) {
     boundaries.add({
       boundary: node,
@@ -289,7 +289,9 @@ function propagateUpdate(
 
   for (const importer of node.importers) {
     const subChain = currentChain.concat(importer)
+    //importer.acceptedHmrDeps 获取到的是模块中 import.meta.hot.accept 的 dep(s) 参数
     if (importer.acceptedHmrDeps.has(node)) {
+      //如果导入者 接受了当年模块则将其加入边界
       boundaries.add({
         boundary: importer,
         acceptedVia: node
@@ -330,6 +332,7 @@ function invalidate(mod: ModuleNode, timestamp: number, seen: Set<ModuleNode>) {
   mod.ssrError = null
   mod.ssrTransformResult = null
   mod.importers.forEach((importer) => {
+    //如果importer没有[接受]mod，就让importer失活
     if (!importer.acceptedHmrDeps.has(mod)) {
       invalidate(importer, timestamp, seen)
     }
