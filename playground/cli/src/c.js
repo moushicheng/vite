@@ -1,2 +1,2 @@
-import d from './d'
-export default 'c?' + d
+import d from './d.js'
+export default 'module:c \n' + d

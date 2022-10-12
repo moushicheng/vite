@@ -454,7 +454,7 @@ async function createDepsOptimizer(
       // old locations) so they need to be invalidated before the page is
       // reloaded.
       server.moduleGraph.invalidateAll()
-
+      //相当于直接location.reload()
       server.ws.send({
         type: 'full-reload',
         path: '*'

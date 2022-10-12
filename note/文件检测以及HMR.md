@@ -183,7 +183,7 @@ if (file.startsWith(normalizedClientDir)) {
 }
 ```
 
-我们可以发现载荷是{type:'full-reload',path:'\*'}，我们先按下不表，只需要知道它是通知客户端 ws 进行全量更新即可
+我们可以发现载荷是{type:'full-reload',path:'\*'}，可以理解为执行一次 location.reload()
 然后执行 handleHotUpdate 钩子,可以看到 vite 对于 handleHotUpdate 钩子的期待似乎只是做过滤模块。
 
 ```javascript
@@ -521,3 +521,40 @@ for (const importer of node.importers) {
 最后借用[小余](https://juejin.cn/user/3210229686216222)的一张流程图 ↓
 
 ![img](https://p3-juejin.byteimg.com/tos-cn-i-k3u1fbpfcp/a67dbbef49b4471a855b490100ab606a~tplv-k3u1fbpfcp-zoom-in-crop-mark:3024:0:0:0.awebp)
+
+propagateUpdate 执行完后，
+会根据情况装载 updates，然后发送更新请求
+
+```javascript
+updates.push(
+      ...[...boundaries].map(({ boundary, acceptedVia }) => ({
+        type: `${boundary.type}-update` as const,
+        timestamp,
+        path: boundary.url,
+        explicitImportRequired:
+          boundary.type === 'js'
+            ? isExplicitImportRequired(acceptedVia.url)
+            : undefined,
+        acceptedPath: acceptedVia.url
+      }))
+    )
+ws.send({
+    type: 'update',
+    updates
+  })
+```
+
+updates 消息结构
+
+```typescript
+export interface Update {
+  type: 'js-update' | 'css-update'
+  path: string
+  acceptedPath: string
+  timestamp: number
+  /**
+   * @experimental internal
+   */
+  explicitImportRequired?: boolean | undefined
+}
+```
