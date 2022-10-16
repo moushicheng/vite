@@ -31,6 +31,7 @@ async function createServer(inlineConfig = {}) {
   const moduleGraph = new ModuleGraph((url, ssr) =>
     container.resolveId(url, undefined, { ssr })
   )
+  // 插件容器
   const container = await createPluginContainer(config, moduleGraph, watcher)
   const closeHttpServer = createServerCloseFn(httpServer)
   let exitProcess

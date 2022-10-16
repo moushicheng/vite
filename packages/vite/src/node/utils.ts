@@ -323,6 +323,7 @@ export function injectQuery(url: string, queryToInject: string): string {
   // encode percents for consistent behavior with pathToFileURL
   // see #2614 for details
   let resolvedUrl = new URL(url.replace(/%/g, '%25'), 'relative:///')
+  //不是'relative，就证明url是绝对路径（因为有协议头）；
   if (resolvedUrl.protocol !== 'relative:') {
     resolvedUrl = pathToFileURL(url)
   }

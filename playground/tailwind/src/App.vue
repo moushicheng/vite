@@ -1,12 +1,9 @@
-<template>
-  <div>
-    <h1 class="text-black">Tailwind app</h1>
-    {{ foo }}
-  </div>
-  <router-view />
-</template>
-
 <script setup lang="ts">
-import { ref } from 'vue'
-const foo = ref(42)
+import { text } from './data'
+const num = Math.random()
 </script>
+
+<template>
+  <h3>HelloWorld ?{{ num }}</h3>
+  <h4>text: {{ text }}</h4>
+</template>
